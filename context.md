@@ -12,7 +12,7 @@ Criar uma aplicação web em Streamlit que permita a execução de queries Graph
 ## 🧠 Funcionalidades
 
 ### ✅ Entrada de Query Genérica
-- O usuário pode colar e editar livremente uma query GraphQL válida.
+- O usuário pode selecionar uma query salva e/ou editar livremente uma query GraphQL válida.
 - A query deve ser executada contra o endpoint `https://api.pipefy.com/graphql` com autenticação via Bearer Token.
 
 ### ✅ Identificação Inteligente dos Dados
@@ -27,8 +27,12 @@ Criar uma aplicação web em Streamlit que permita a execução de queries Graph
     - Cada linha da subtabela recebe um identificador único e referência ao item pai.
     - A tabela principal mostra:
       - Uma coluna com os **IDs das linhas da subtabela** correspondentes
-      - Uma segunda coluna com uma **prévia textual** do primeiro campo útil da sublista
+      - Uma segunda coluna com **prévia textual** de cada item (preferencialmente o campo `name` ou `title`)
   - O limite de colunas (`N`) é configurável via interface antes de executar a query.
+
+### ✅ Parâmetros Variáveis
+- O sistema detecta campos variáveis na query com as marcações `$campo$` (linha única) e `$$campo$$` (multilinha).
+- Esses campos são substituídos antes da execução com os valores informados pelo usuário.
 
 ### ✅ Visualização e Exportação
 - Os dados retornados são exibidos como tabela via `st.dataframe()`.
@@ -38,10 +42,11 @@ Criar uma aplicação web em Streamlit que permita a execução de queries Graph
 ### ✅ Salvamento de Queries
 - O usuário pode salvar queries nomeadas em um arquivo local `saved_queries.json`.
 - Queries salvas são listadas automaticamente para reutilização via dropdown.
+- O editor e o botão de salvar estão dentro da seção **"⚙️ Configurações Avançadas"**.
 
 ### ✅ Logs e Debug
 - A aplicação exibe:
-  - A resposta bruta da API Pipefy (`st.json()`)
+  - A **resposta bruta** da API Pipefy (dentro de um `expander` colapsado por padrão)
   - O caminho até a lista encontrada (ex: `data.card.parent_relations.cards`)
   - Preview do primeiro item da lista
   - Número de registros processados
@@ -72,6 +77,7 @@ pipefy-query-runner/
 ├── Dockerfile               # (Opcional) Imagem Docker do projeto
 ├── docker-compose.yml       # (Opcional) Orquestração do Docker
 ├── README.md                # Documentação do projeto
+├── context.md               # Histórico funcional e técnico da aplicação
 ```
 
 ---
@@ -83,21 +89,23 @@ pipefy-query-runner/
   - A compatibilidade com o formato atual de exportação
   - A lógica de criação de subtabelas para campos que excedem o limite configurável de colunas
 - Qualquer alteração que modifique o parser de JSON deve manter os logs e estrutura de debug para validação dos dados.
+- O comportamento de substituição de variáveis na query deve preservar o padrão `$variavel$` e `$$variavel$$` com distinção entre campos de texto simples e multilinha.
 
 ---
 
 ## 📌 Versão Atual
-**Stable v1.2.0 - Julho/2025**
-- Suporte a sublistas internas com criação de subtabelas quando necessário
-- Parâmetro configurável para limite de colunas antes de criar subtabela (padrão: 6)
-- Flatten adaptativo robusto e exportação com múltiplas abas
+**Stable v1.3.0 - Julho/2025**
+- Suporte a campos variáveis substituíveis
+- Interface refinada com agrupamento em "Configurações Avançadas"
+- Logs organizados e exportação robusta com Excel
+- Melhor visualização para múltiplas subtabelas
 
 ---
 
 ## 🧾 Exemplo de Query Compatível
 ```graphql
 {
-  card(id: "123456") {
+  card(id: "$Card ID$") {
     parent_relations {
       cards {
         id
