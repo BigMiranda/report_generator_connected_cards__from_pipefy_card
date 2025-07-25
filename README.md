@@ -79,6 +79,7 @@ Para utilizar o projeto, você precisará de um **Access Token (Bearer Token)** 
 ```
 pipefy-connected-cards/
 │── app.py                 # Código principal em Streamlit
+├── saved_queries.json     # Salva queries nomeadas
 │── Dockerfile             # Imagem base Python + instalação
 │── docker-compose.yml     # Orquestração com Docker Compose
 │── requirements.txt       # Bibliotecas necessárias

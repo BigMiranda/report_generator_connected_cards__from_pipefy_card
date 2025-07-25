@@ -1,112 +1,122 @@
 import streamlit as st
 import requests
 import pandas as pd
-from io import BytesIO
 import json
+from io import BytesIO
+from pathlib import Path
 
-st.set_page_config(page_title="Cards Conectados Pipefy", layout="wide")
-st.title("🔗 Relatório de Cards Conectados (via parent_relations)")
+st.set_page_config(page_title="Pipefy Query Runner", layout="wide")
+st.title("📊 Executor de Query GraphQL (Pipefy) com Suporte a Sublistas")
+
+QUERIES_FILE = Path("saved_queries.json")
+
+# Carrega queries salvas
+if QUERIES_FILE.exists():
+    with open(QUERIES_FILE, "r", encoding="utf-8") as f:
+        saved_queries = json.load(f)
+else:
+    saved_queries = {}
 
 # Entradas
 token = st.text_input("🔐 Token de Acesso (Bearer)", type="password")
-card_id = st.text_input("🆔 ID do Card Pipefy")
-executar = st.button("🔍 Buscar Cards Conectados")
+query_names = list(saved_queries.keys())
+selected_query = st.selectbox("📂 Escolher uma query salva", [""] + query_names)
+query_text = st.text_area("✍️ Insira ou edite sua query GraphQL abaixo", value=saved_queries.get(selected_query, ""), height=300)
 
-# Logs
-log = []
+# Salvar nova query
+with st.expander("💾 Salvar esta query"):
+    new_name = st.text_input("Nome para salvar a query")
+    if st.button("Salvar query"):
+        if new_name:
+            saved_queries[new_name] = query_text
+            with open(QUERIES_FILE, "w", encoding="utf-8") as f:
+                json.dump(saved_queries, f, indent=2, ensure_ascii=False)
+            st.success(f"Query '{new_name}' salva!")
+        else:
+            st.warning("⚠️ Informe um nome válido.")
 
-def gerar_query(card_id):
-    return f"""
-    {{
-      card(id: "{card_id}") {{
-        title
-        parent_relations {{
-          cards {{
-            id
-            title
-            pipe {{
-              id
-              name
-            }}
-            current_phase {{
-              id
-              name
-            }}
-          }}
-        }}
-      }}
-    }}
-    """
+# Flatten recursivo com prefixo
+def flatten_record(record, parent_key='', sep='_'):
+    items = {}
+    for k, v in record.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.update(flatten_record(v, new_key, sep=sep))
+        else:
+            items[new_key] = v
+    return items
 
+# Função especial para extrair listas de subitens (ex: parent_relations[*].cards[*])
+def extract_nested_lists(obj, key_chain=None):
+    key_chain = key_chain or []
+    collected = []
 
-if executar:
-    if not token or not card_id:
-        st.warning("⚠️ Por favor, preencha o Token e o ID do Card.")
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, list):
+                for idx, item in enumerate(v):
+                    if isinstance(item, dict) and "cards" in item and isinstance(item["cards"], list):
+                        collected.extend(item["cards"])
+            else:
+                collected.extend(extract_nested_lists(v, key_chain + [k]))
+
+    elif isinstance(obj, list):
+        for item in obj:
+            collected.extend(extract_nested_lists(item, key_chain))
+
+    return collected
+
+# Executar a query
+if st.button("▶️ Executar Query"):
+    if not token or not query_text.strip():
+        st.warning("⚠️ Token e query são obrigatórios.")
     else:
-        with st.spinner("🔄 Executando consulta GraphQL..."):
-            query = gerar_query(card_id)
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
 
-            log.append("📤 Enviando requisição para Pipefy...")
-            log.append(f"🔎 Query enviada:\n```graphql\n{query}\n```")
-
-            try:
-                response = requests.post(
-                    "https://api.pipefy.com/graphql",
-                    json={"query": query},
-                    headers=headers
-                )
-
-                log.append(f"📬 Status da resposta: {response.status_code}")
-                if response.status_code != 200:
-                    raise Exception(f"Resposta HTTP inválida: {response.status_code}")
-
+        try:
+            with st.spinner("🔄 Executando query..."):
+                response = requests.post("https://api.pipefy.com/graphql", json={"query": query_text}, headers=headers)
+                response.raise_for_status()
                 result = response.json()
-                log.append(f"📥 Resposta bruta:\n```json\n{json.dumps(result, indent=2)}\n```")
 
-                if "data" not in result or "card" not in result["data"]:
-                    raise KeyError("Estrutura da resposta não contém o campo 'data.card'.")
+            st.success("✅ Query executada com sucesso.")
 
-                parent_relations = result["data"]["card"]["parent_relations"]
-                dados = []
+            st.subheader("📥 Resposta bruta")
+            st.json(result)
 
-                for relation in parent_relations:
-                    for card in relation.get("cards", []):
-                        dados.append({
-                        "ID do Card": card["id"],
-                        "Título do Card": card["title"],
-                        "ID do Pipe": card["pipe"]["id"],
-                        "Nome do Pipe": card["pipe"]["name"],
-                        "ID da Fase": card["current_phase"]["id"],
-                        "Nome da Fase": card["current_phase"]["name"],
-                        "Link do Card": f"https://app.pipefy.com/open-cards/{card['id']}"
-                    })
+            with st.expander("🔍 Logs de Execução"):
+                st.write("🔎 Buscando listas aninhadas (ex: parent_relations[*].cards[*])...")
+                nested_list = extract_nested_lists(result.get("data", {}))
 
-
-                if not dados:
-                    st.warning("⚠️ Nenhum card conectado encontrado.")
+                if nested_list:
+                    st.write(f"✅ Lista extraída com sucesso: {len(nested_list)} registros encontrados.")
+                    st.write("🧾 Preview do primeiro item:")
+                    st.json(nested_list[0])
                 else:
-                    df = pd.DataFrame(dados)
-                    st.success(f"✅ {len(df)} cards conectados encontrados.")
-                    st.dataframe(df)
+                    st.warning("❌ Nenhuma sublista encontrada com chave 'cards'.")
+                    st.stop()
 
-                    # Botão Excel
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                        df.to_excel(writer, index=False, sheet_name='Cards Conectados')
+            # Aplicar flatten
+            flattened = [flatten_record(r) for r in nested_list]
+            df = pd.DataFrame(flattened)
+            st.subheader("📊 Tabela Final (flatten)")
+            st.dataframe(df)
 
-                    st.download_button("📥 Baixar Excel", data=output.getvalue(),
-                                       file_name="cards_conectados.xlsx",
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # Exportar Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False, sheet_name="Resultado")
 
-            except Exception as e:
-                st.error("❌ Erro ao processar dados. Verifique o token e o ID do card.")
-                log.append(f"❗Erro detectado: {str(e)}")
+            st.download_button(
+                label="📤 Baixar resultado em Excel",
+                data=output.getvalue(),
+                file_name="resultado_pipefy.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
-        # Mostrar log em expander
-        with st.expander("📜 Ver Log Completo da Execução"):
-            for linha in log:
-                st.markdown(linha)
+        except Exception as e:
+            st.error("❌ Erro ao executar a query.")
+            st.exception(e)
